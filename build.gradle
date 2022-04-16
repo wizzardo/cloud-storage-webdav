@@ -1,0 +1,36 @@
+
+buildscript {
+    repositories {
+        mavenCentral()
+        maven {
+            url "https://oss.sonatype.org/content/repositories/snapshots/"
+        }
+        maven {
+            url "https://plugins.gradle.org/m2/"
+        }
+    }
+    dependencies {
+        classpath 'com.wizzardo.tools:tools-gradle-build:0.24-SNAPSHOT'
+    }
+}
+
+plugins {
+    id 'java'
+}
+apply plugin: 'tools-gradle-build'
+
+group 'com.wizzardo'
+version '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+    maven {
+        url "https://oss.sonatype.org/content/repositories/snapshots/"
+    }
+}
+
+
+dependencies {
+
+    testImplementation group: 'junit', name: 'junit', version: '4.12'
+}
