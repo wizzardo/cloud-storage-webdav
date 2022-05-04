@@ -1,0 +1,6 @@
+gradle.properties
+degoo.token
+build
+.gradle
+out
+.idea

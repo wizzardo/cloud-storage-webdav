@@ -1,18 +1,13 @@
 
 apply plugin: 'java-library'
 
-group = "com.example"
-version = "0.0.1-SNAPSHOT"
-java.sourceCompatibility = JavaVersion.VERSION_11
-
-repositories {
-    mavenCentral()
-    maven {
-        url "https://oss.sonatype.org/content/repositories/snapshots/"
-    }
-}
-
 dependencies {
     api project(':storages:base')
     implementation 'com.wizzardo.tools:tools:0.24-SNAPSHOT'
 }
+
+archivesBaseName = "local"
+ext {
+    descriptionString = 'local'
+}
+apply from: "${rootProject.projectDir}/gradle/sonatype.gradle"
