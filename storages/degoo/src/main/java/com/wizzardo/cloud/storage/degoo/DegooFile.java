@@ -5,6 +5,7 @@ import com.wizzardo.cloud.storage.FileInfo;
 public class DegooFile extends FileInfo {
     public String id;
     public String url;
+    public String path;
 
     @Override
     public String toString() {
@@ -16,6 +17,7 @@ public class DegooFile extends FileInfo {
                 ", type=" + type +
                 ", id='" + id + '\'' +
                 ", url='" + url + '\'' +
+                ", path='" + path + '\'' +
                 '}';
     }
 

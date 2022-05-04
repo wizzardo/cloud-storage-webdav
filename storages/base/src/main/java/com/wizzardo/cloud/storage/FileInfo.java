@@ -11,6 +11,14 @@ public class FileInfo {
         FILE, FOLDER, ROOT_FOLDER
     }
 
+    public boolean isFolder() {
+        return type == FileInfo.Type.FOLDER || type == Type.ROOT_FOLDER;
+    }
+
+    public boolean isFile() {
+        return type == FileInfo.Type.FILE;
+    }
+
     @Override
     public String toString() {
         return "FileInfo{" +
