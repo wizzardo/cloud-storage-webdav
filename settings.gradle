@@ -1,3 +1,4 @@
 rootProject.name = 'cloud-storage-webdav'
 include ':storages:base',
+    ':storages:local',
     ':storages:degoo'
