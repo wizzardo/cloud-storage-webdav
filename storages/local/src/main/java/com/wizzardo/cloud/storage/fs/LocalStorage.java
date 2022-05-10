@@ -103,8 +103,8 @@ public class LocalStorage implements Storage<LocalStorage.FSFileInfo> {
 
     @Override
     public void put(String path, byte[] bytes) throws IOException {
-        getFile(path);
-        FileTools.bytes(path, bytes);
+        File file = getFile(path);
+        FileTools.bytes(file, bytes);
     }
 
     @Override

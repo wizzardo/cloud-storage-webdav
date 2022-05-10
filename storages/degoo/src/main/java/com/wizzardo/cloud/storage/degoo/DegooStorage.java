@@ -6,6 +6,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Date;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import com.wizzardo.cloud.storage.FileInfo;
@@ -27,33 +29,33 @@ public class DegooStorage implements Storage<DegooFile> {
 
     protected String username;
     protected String password;
-    protected String token;
+    protected Cache<Boolean, String> tokenHolder = new Cache<>(-1, aBoolean -> refreshToken());
     protected long totalSpace;
     protected long usedSpace;
     protected Cache<String, DegooFile> filesByPath = new Cache<>(600);
     protected Cache<String, DegooFile> filesById = new Cache<>(600);
     protected Cache<String, List<DegooFile>> filesByParentId = new Cache<>(60);
 
-    protected DegooStorage() {
-        token = Unchecked.ignore(() -> FileTools.text("degoo.token"), "");
-    }
+    protected Supplier<String> readToken = () -> Unchecked.ignore(() -> FileTools.text("degoo.token"), "");
+    protected Consumer<String> writeToken = s -> FileTools.text("degoo.token", s);
 
-    public static void main(String[] args) throws IOException {
-        DegooStorage storage = new DegooStorage("moxathedark@gmail.com", "qwerty123");
-        List<DegooFile> root = storage.list();
-        System.out.println(root);
-        List<DegooFile> files = storage.list(root.get(0));
-        for (DegooFile file : files) {
-            System.out.println(file);
+    public DegooStorage(String username, String password) {
+        this.username = username;
+        this.password = password;
+        String token = readToken.get();
+        if (token != null && !token.isEmpty()) {
+            tokenHolder.put(true, token);
         }
     }
 
-    public DegooStorage(String username, String password) {
-        this();
-        this.username = username;
-        this.password = password;
+    public void setTokenGetterSetter(Supplier<String> readToken, Consumer<String> writeToken) {
+        this.readToken = readToken;
+        this.writeToken = writeToken;
+        String token = readToken.get();
+        if (token != null && !token.isEmpty()) {
+            tokenHolder.put(true, token);
+        }
     }
-
 
     public static class GraphQlResponse {
         List<Error> errors;
@@ -228,7 +230,7 @@ public class DegooStorage implements Storage<DegooFile> {
                         "  }")
                 .append("variables", new JsonObject()
                         .append("ParentID", parentId)
-                        .append("Token", token)
+                        .append("Token", tokenHolder.get(true))
                         .append("Order", "3")
                         .append("Limit", "100")
                 ));
@@ -352,24 +354,29 @@ public class DegooStorage implements Storage<DegooFile> {
         if (variables == null)
             payload.append("variables", variables = new JsonObject());
 
-        variables.append("Token", token);
+        variables.append("Token", tokenHolder.get(true));
+
+        String requestJson = payload.toString();
+        System.out.println("request:");
+        System.out.println(requestJson);
 
         Response response = new Request("https://production-appsync.degoo.com/graphql")
                 .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36")
                 .header("x-api-key", "da2-vs6twz5vnjdavpqndtbzg3prra") // hardcoded in js-app: this.API_KEY = this.useProduction() ? "da2-vs6twz5vnjdavpqndtbzg3prra" : "da2-wnero2yqbjggnmenhg4su2jmce"
-                .json(payload.toString())
+                .json(requestJson)
                 .post();
         int responseCode = response.getResponseCode();
         String text = response.asString();
         if (responseCode != 200)
             throw new IllegalStateException(responseCode + " " + text);
 
+        System.out.println("response: " + responseCode);
         System.out.println(text);
         T parse = JsonTools.parse(text, asClass);
 
         if (parse.errors != null && !parse.errors.isEmpty()) {
             if (retry && parse.errors.size() == 1 && "Unauthorized".equals(parse.errors.get(0).errorType)) {
-                refreshToken();
+                tokenHolder.remove(true);
                 return makeGraphQlRequest(asClass, payload, false);
             }
 
@@ -384,7 +391,7 @@ public class DegooStorage implements Storage<DegooFile> {
         String RefreshToken;
     }
 
-    protected void refreshToken() throws IOException {
+    protected String refreshToken() throws IOException {
         Stopwatch stopwatch = new Stopwatch("request");
         Response response = new Request("https://loginator8000.herokuapp.com/degoo")
                 .json(new JsonObject()
@@ -398,12 +405,21 @@ public class DegooStorage implements Storage<DegooFile> {
         String json = response.asString();
         System.out.println(json);
         LoginResponse loginResponse = JsonTools.parse(json, LoginResponse.class);
-        token = loginResponse.Token;
-        FileTools.text("degoo.token", loginResponse.Token);
+        String token = loginResponse.Token;
+        writeToken.accept(token);
+        return token;
     }
 
     @Override
     public void createFolder(String path) throws IOException {
+        DegooFile file = getInfo(path);
+        if (file != null) {
+            if (file.isFolder())
+                return;
+            else
+                throw new IllegalArgumentException("Cannot create folder '" + path + "' - there is a file with the same name");
+        }
+
         int nameSeparator = path.lastIndexOf('/');
         String name = path.substring(nameSeparator + 1);
         String folder = path.substring(0, nameSeparator);
@@ -462,7 +478,7 @@ public class DegooStorage implements Storage<DegooFile> {
         Data data;
 
         static class Data {
-            boolean setDeleteFile5;
+            Boolean setDeleteFile5;
         }
     }
 
@@ -481,7 +497,7 @@ public class DegooStorage implements Storage<DegooFile> {
                         .append("IsInRecycleBin", false)
                 )
         );
-        if (setDeleteFile5Response.data == null || !setDeleteFile5Response.data.setDeleteFile5)
+        if (setDeleteFile5Response.data == null || setDeleteFile5Response.data.setDeleteFile5 == null || !setDeleteFile5Response.data.setDeleteFile5)
             throw new IllegalStateException("Deletion failed");
     }
 
@@ -490,12 +506,12 @@ public class DegooStorage implements Storage<DegooFile> {
         Data data;
 
         static class Data {
-            boolean setDeleteFile5;
+            Boolean setMoveFile;
         }
     }
 
     public void moveFile(String fileId, String toFolderId) throws IOException {
-        SetMoveFileResponse setDeleteFile5Response = makeGraphQlRequest(SetMoveFileResponse.class, new JsonObject()
+        SetMoveFileResponse setMoveFileResponse = makeGraphQlRequest(SetMoveFileResponse.class, new JsonObject()
                 .append("operationName", "SetMoveFile")
                 .append("query", "mutation SetMoveFile(\n" +
                         "    $Token: String!\n" +
@@ -516,8 +532,8 @@ public class DegooStorage implements Storage<DegooFile> {
                         .append("Copy", false)
                 )
         );
-        if (setDeleteFile5Response.data == null || !setDeleteFile5Response.data.setDeleteFile5)
-            throw new IllegalStateException("Deletion failed");
+        if (setMoveFileResponse.data == null || setMoveFileResponse.data.setMoveFile == null || !setMoveFileResponse.data.setMoveFile)
+            throw new IllegalStateException("Movement failed");
     }
 
     static class SetUploadFile3Response extends GraphQlResponse {
@@ -525,7 +541,7 @@ public class DegooStorage implements Storage<DegooFile> {
         Data data;
 
         static class Data {
-            boolean setUploadFile3;
+            Boolean setUploadFile3;
         }
     }
 
@@ -546,8 +562,10 @@ public class DegooStorage implements Storage<DegooFile> {
                         ))
                 )
         );
-        if (setUploadFile3Response.data == null || !setUploadFile3Response.data.setUploadFile3)
+        if (setUploadFile3Response.data == null || setUploadFile3Response.data.setUploadFile3 == null || !setUploadFile3Response.data.setUploadFile3)
             throw new IllegalStateException("Folder creation failed");
+
+        filesByParentId.remove(parentId);
     }
 
     static class SetRenameFileResponse extends GraphQlResponse {
@@ -555,7 +573,7 @@ public class DegooStorage implements Storage<DegooFile> {
         Data data;
 
         static class Data {
-            boolean setRenameFile;
+            Boolean setRenameFile;
         }
     }
 
@@ -573,7 +591,7 @@ public class DegooStorage implements Storage<DegooFile> {
                         .append("IsInRecycleBin", false)
                 )
         );
-        if (setDeleteFile5Response.data == null || !setDeleteFile5Response.data.setRenameFile)
+        if (setDeleteFile5Response.data == null || setDeleteFile5Response.data.setRenameFile == null || !setDeleteFile5Response.data.setRenameFile)
             throw new IllegalStateException("Renaming failed");
     }
 
@@ -711,7 +729,7 @@ public class DegooStorage implements Storage<DegooFile> {
                         "  }")
                 .append("variables", new JsonObject()
                         .append("ParentID", parentId)
-                        .append("Token", token)
+                        .append("Token", tokenHolder.get(true))
                         .append("StorageUploadInfos", new JsonArray()
                                 .append(new JsonObject()
                                         .append("Checksum", checksum)
@@ -724,8 +742,34 @@ public class DegooStorage implements Storage<DegooFile> {
 
 
         GetBucketWriteAuth4Response.Data.BucketWriteAuth4 bucketWriteAuth4 = getBucketWriteAuth4Response.data.getBucketWriteAuth4.get(0);
-        if (bucketWriteAuth4.AuthData == null || bucketWriteAuth4.Error != null)
-            return;
+        if (bucketWriteAuth4.AuthData == null || bucketWriteAuth4.Error != null) {
+            if ("Already exist!".equals(bucketWriteAuth4.Error)) {
+                SetUploadFile3 setUploadFile3 = makeGraphQlRequest(SetUploadFile3.class, new JsonObject()
+                        .append("operationName", "SetUploadFile3")
+                        .append("query", "mutation SetUploadFile3($Token: String!, $FileInfos: [FileInfoUpload3]!) {\n" +
+                                "    setUploadFile3(Token: $Token, FileInfos: $FileInfos)\n" +
+                                "  }")
+                        .append("variables", new JsonObject()
+                                .append("Token", tokenHolder.get(true))
+                                .append("FileInfos", new JsonArray()
+                                        .append(new JsonObject()
+                                                .append("Checksum", checksum)
+                                                .append("Name", name)
+                                                .append("Size", payload.size())
+                                                .append("ParentID", parentId)
+                                                .append("CreationTime", System.currentTimeMillis())
+                                        )
+                                )
+                        )
+                );
+
+                if (setUploadFile3.data == null || !setUploadFile3.data.setUploadFile3)
+                    throw new IllegalStateException("Upload failed");
+                else
+                    return;
+            }
+            throw new IllegalStateException(bucketWriteAuth4.Error);
+        }
 
         String extension = name;
         extension = extension.substring(extension.lastIndexOf('.') + 1);
@@ -764,7 +808,7 @@ public class DegooStorage implements Storage<DegooFile> {
                         "    setUploadFile3(Token: $Token, FileInfos: $FileInfos)\n" +
                         "  }")
                 .append("variables", new JsonObject()
-                        .append("Token", token)
+                        .append("Token", tokenHolder.get(true))
                         .append("FileInfos", new JsonArray()
                                 .append(new JsonObject()
                                         .append("Checksum", checksum)

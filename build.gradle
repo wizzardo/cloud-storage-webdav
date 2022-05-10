@@ -1,5 +1,6 @@
 allprojects {
     apply plugin: 'java'
+    apply plugin: 'tools-gradle-build'
 
     group 'com.wizzardo.cloud-storage-webdav'
     version '1.0-SNAPSHOT'
