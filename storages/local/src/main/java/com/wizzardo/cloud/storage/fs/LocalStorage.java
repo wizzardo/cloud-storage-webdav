@@ -26,7 +26,7 @@ public class LocalStorage implements Storage<LocalStorage.FSFileInfo> {
 
     protected FSFileInfo create(File file) throws IOException {
         FSFileInfo fi = new FSFileInfo();
-        fi.path = file.getCanonicalPath();
+        fi.path = file.getCanonicalPath().substring(root.getCanonicalPath().length());
         fi.name = file.getName();
         fi.size = file.length();
         fi.updated = file.lastModified();
@@ -46,10 +46,8 @@ public class LocalStorage implements Storage<LocalStorage.FSFileInfo> {
         File[] files;
         if (fileInfo == null) {
             files = root.listFiles();
-        } else if (!fileInfo.path.startsWith(root.getCanonicalPath())) {
-            throw new IllegalArgumentException("File is outside of served folder! " + fileInfo);
         } else
-            files = new File(fileInfo.path).listFiles();
+            files = new File(root, fileInfo.path).listFiles();
 
         ArrayList<FSFileInfo> list = new ArrayList<>(files.length);
         for (File file : files) {
@@ -70,7 +68,7 @@ public class LocalStorage implements Storage<LocalStorage.FSFileInfo> {
     @Override
     public byte[] getData(FSFileInfo file, long from, long to) throws IOException {
         byte[] bytes = new byte[(int) (to - from)];
-        try (RandomAccessFile raf = new RandomAccessFile(file.path, "r")) {
+        try (RandomAccessFile raf = new RandomAccessFile(new File(root, file.path), "r")) {
             raf.seek(from);
             int offset = 0;
             while (offset != bytes.length) {

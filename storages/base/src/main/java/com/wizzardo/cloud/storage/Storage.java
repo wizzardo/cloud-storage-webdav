@@ -53,6 +53,8 @@ public interface Storage<T extends FileInfo> {
     void move(T file, String destination) throws IOException;
 
     default void move(String file, String destination) throws IOException {
+        if (file.equals(destination))
+            return;
         move(getInfo(file), destination);
     }
 
