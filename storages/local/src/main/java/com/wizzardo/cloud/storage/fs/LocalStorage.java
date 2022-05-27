@@ -108,6 +108,9 @@ public class LocalStorage implements Storage<LocalStorage.FSFileInfo> {
     @Override
     public void put(String path, File file) throws IOException {
         File to = getFile(path);
+        File parentFile = to.getParentFile();
+        if (!parentFile.exists())
+            parentFile.mkdirs();
         try (
                 FileInputStream in = new FileInputStream(file);
                 FileOutputStream out = new FileOutputStream(to);

@@ -269,7 +269,14 @@ public class DegooStorage implements Storage<DegooFile> {
         Request request = new Request(file.url)
                 .header("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.75 Safari/537.36");
 
+        System.out.println("downloading as stream " + file);
         Response response = request.get();
+        System.out.println(response.getResponseCode() + " length: " + response.getContentLength());
+        if (response.getResponseCode() != 200) {
+            String s = response.asString();
+            System.out.println(s);
+            throw new IllegalStateException("Fetch is unsuccessful: " + response.getResponseCode() + " " + s);
+        }
         return response.asStream();
     }
 
@@ -318,7 +325,14 @@ public class DegooStorage implements Storage<DegooFile> {
             request.header("Range", "bytes=" + from + "-" + (to - 1));
         }
 
+        System.out.println("downloading as byte[] " + file);
         Response response = request.get();
+        System.out.println(response.getResponseCode() + " length: " + response.getContentLength());
+        if (response.getResponseCode() != 200) {
+            String s = response.asString();
+            System.out.println(s);
+            throw new IllegalStateException("Fetch is unsuccessful: " + response.getResponseCode() + " " + s);
+        }
         byte[] bytes = response.asBytes();
         return bytes;
     }
@@ -445,6 +459,10 @@ public class DegooStorage implements Storage<DegooFile> {
         String folder = path.substring(0, nameSeparator);
 
         DegooFile folderInfo = getInfo(folder);
+        if (folderInfo == null) {
+            createFolder(folder);
+            folderInfo = getInfo(folder);
+        }
         upload(new ByteArrayUpload(bytes), name, folderInfo.id);
     }
 
@@ -455,6 +473,10 @@ public class DegooStorage implements Storage<DegooFile> {
         String folder = path.substring(0, nameSeparator);
 
         DegooFile folderInfo = getInfo(folder);
+        if (folderInfo == null) {
+            createFolder(folder);
+            folderInfo = getInfo(folder);
+        }
         upload(new FileUpload(file), name, folderInfo.id);
     }
 
