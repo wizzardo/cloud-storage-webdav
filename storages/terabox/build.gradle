@@ -1,0 +1,13 @@
+
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':storages:base')
+    implementation 'com.wizzardo.tools:tools:0.24-SNAPSHOT'
+}
+
+archivesBaseName = "terabox"
+ext {
+    descriptionString = 'terabox'
+}
+apply from: "${rootProject.projectDir}/gradle/sonatype.gradle"
