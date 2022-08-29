@@ -3,4 +3,5 @@ include ':storages:base',
     ':storages:local',
     ':storages:terabox',
     ':storages:s3',
+    ':storages:webdav',
     ':storages:degoo'

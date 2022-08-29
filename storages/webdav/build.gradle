@@ -1,0 +1,13 @@
+
+apply plugin: 'java-library'
+
+dependencies {
+    api project(':storages:base')
+    implementation 'com.wizzardo.tools:tools:0.24-SNAPSHOT'
+}
+
+archivesBaseName = "webdav"
+ext {
+    descriptionString = 'webdav'
+}
+apply from: "${rootProject.projectDir}/gradle/sonatype.gradle"
