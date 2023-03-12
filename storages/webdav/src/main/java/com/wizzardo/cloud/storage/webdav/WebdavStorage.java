@@ -164,14 +164,45 @@ public class WebdavStorage implements Storage<WebdavStorage.WebdavFile> {
         Response response = createRequest(path).get();
 
         System.out.println("downloading as stream " + path);
-        System.out.println(response.getResponseCode() + " length: " + response.getContentLength());
+        int contentLength = response.getContentLength();
+        System.out.println(response.getResponseCode() + " length: " + contentLength);
         if (response.getResponseCode() != 200) {
             String s = response.asString();
             System.out.println(s);
             throw new IllegalStateException("Fetch is unsuccessful: " + response.getResponseCode() + " " + s);
         }
 
-        return response.asStream();
+        InputStream[] stream = new InputStream[]{response.asStream()};
+        return new InputStream() {
+            int total = 0;
+
+            @Override
+            public int read() throws IOException {
+                throw new RuntimeException("Not implemented yet");
+            }
+
+            @Override
+            public int read(byte[] b, int off, int len) throws IOException {
+                int read = stream[0].read(b, off, len);
+                if (read == -1 && total != contentLength) {
+                    stream[0] = createRequest(path)
+                            .header("Range", "bytes=" + (total) + "-" + (contentLength - 1))
+                            .get()
+                            .asStream();
+                    read = stream[0].read(b, off, len);
+                }
+                if (read != -1) {
+                    total += read;
+                }
+
+                return read;
+            }
+
+            @Override
+            public void close() throws IOException {
+                stream[0].close();
+            }
+        };
     }
 
     @Override
