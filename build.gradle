@@ -44,6 +44,8 @@ ext {
 
 apply from: 'gradle/sonatype.gradle'
 
+sourceCompatibility = 11
+targetCompatibility = 11
 
 dependencies {
     implementation 'com.wizzardo:http:0.5-SNAPSHOT'

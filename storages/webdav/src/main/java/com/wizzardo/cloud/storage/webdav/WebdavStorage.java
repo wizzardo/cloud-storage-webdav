@@ -7,15 +7,18 @@ import com.wizzardo.tools.http.ContentType;
 import com.wizzardo.tools.http.Request;
 import com.wizzardo.tools.http.Response;
 import com.wizzardo.tools.misc.Unchecked;
-import com.wizzardo.tools.reflection.FieldReflection;
-import com.wizzardo.tools.reflection.FieldReflectionFactory;
+import com.wizzardo.tools.security.Base64;
 import com.wizzardo.tools.xml.Node;
 import com.wizzardo.tools.xml.XmlParser;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.HttpURLConnection;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.List;
@@ -49,33 +52,6 @@ public class WebdavStorage implements Storage<WebdavStorage.WebdavFile> {
         }
     }
 
-    static {
-        FieldReflectionFactory reflectionFactory = new FieldReflectionFactory();
-        try {
-            FieldReflection fieldReflection = reflectionFactory.create(HttpURLConnection.class, "methods", true);
-            reflectionFactory.removeFinalModifier(fieldReflection.getField());
-            fieldReflection.setObject(null, new String[]{
-                    ConnectionMethod.HTTPMethod.GET.name(),
-                    ConnectionMethod.HTTPMethod.POST.name(),
-                    ConnectionMethod.HTTPMethod.HEAD.name(),
-                    ConnectionMethod.HTTPMethod.OPTIONS.name(),
-                    ConnectionMethod.HTTPMethod.PUT.name(),
-                    ConnectionMethod.HTTPMethod.DELETE.name(),
-                    ConnectionMethod.HTTPMethod.TRACE.name(),
-                    ConnectionMethod.HTTPMethod.CONNECT.name(),
-                    ConnectionMethod.HTTPMethod.PATCH.name(),
-                    WebdavMethod.COPY.name(),
-                    WebdavMethod.MOVE.name(),
-                    WebdavMethod.LOCK.name(),
-                    WebdavMethod.UNLOCK.name(),
-                    WebdavMethod.PROPPATCH.name(),
-                    WebdavMethod.PROPFIND.name(),
-                    WebdavMethod.MKCOL.name(),
-            });
-        } catch (NoSuchFieldException ignored) {
-        }
-    }
-
     public static class HttpDateFormatterHolder {
 
         public static ThreadLocal<SimpleDateFormat> formatter = ThreadLocal.withInitial(() -> {
@@ -92,6 +68,7 @@ public class WebdavStorage implements Storage<WebdavStorage.WebdavFile> {
     protected String base;
     protected String username;
     protected String password;
+    protected HttpClient httpClient = HttpClient.newBuilder().build();
 
     public WebdavStorage(String url, String username, String password) {
         this.base = url;
@@ -112,6 +89,19 @@ public class WebdavStorage implements Storage<WebdavStorage.WebdavFile> {
         return request;
     }
 
+    protected HttpRequest.Builder createRequestWebdav(String path) {
+        HttpRequest.Builder request;
+        try {
+            request = HttpRequest.newBuilder().uri(new URI(base + path));
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e);
+        }
+        if (username != null && !username.isEmpty() && password != null && !password.isEmpty()) {
+            request.header("Authorization", "Basic " + Base64.encodeToString((username + ":" + password).getBytes(StandardCharsets.UTF_8)));
+        }
+        return request;
+    }
+
     @Override
     public WebdavFile getInfo(String path) throws IOException {
         byte[] xml = new Node("D:propfind").attr("xmlns:D", "DAV:")
@@ -124,22 +114,29 @@ public class WebdavStorage implements Storage<WebdavStorage.WebdavFile> {
                 )
                 .toXML().getBytes(StandardCharsets.UTF_8);
 
-        Response response = createRequest(path)
+        HttpRequest request = createRequestWebdav(path)
                 .header("Depth", "0")
-                .data(xml, ContentType.XML)
-                .setMethod(WebdavMethod.PROPFIND)
-                .execute();
+                .headers("Content-Type", ContentType.XML.value)
+                .method(WebdavMethod.PROPFIND.name(), HttpRequest.BodyPublishers.ofByteArray(xml))
+                .build();
 
-        if (response.getResponseCode() == 404)
-            return null;
-
-        if (response.getResponseCode() >= 400) {
-            String s = response.asString();
-            System.out.println(s);
-            throw new IllegalStateException("Fetch is unsuccessful: " + response.getResponseCode() + " " + s);
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
         }
 
-        Node node = new XmlParser<>().parse(response.asString("UTF-8"));
+        if (response.statusCode() == 404)
+            return null;
+
+        if (response.statusCode() >= 400) {
+            String s = response.body();
+            System.out.println(s);
+            throw new IllegalStateException("Fetch is unsuccessful: " + response.statusCode() + " " + s);
+        }
+
+        Node node = new XmlParser<>().parse(response.body());
         Node dresponse = node.get(0);
         String href = dresponse.get(0).text();
         Node props = dresponse.get(1).get(1);
@@ -254,15 +251,22 @@ public class WebdavStorage implements Storage<WebdavStorage.WebdavFile> {
         if (!parent.isEmpty())
             createFolder(parent);
 
-        Response response = createRequest(path)
-                .setMethod(WebdavMethod.MKCOL)
-                .execute();
+        HttpRequest request = createRequestWebdav(path)
+                .method(WebdavMethod.MKCOL.name(), HttpRequest.BodyPublishers.noBody())
+                .build();
 
-        System.out.println(response.getResponseCode() + " length: " + response.getContentLength());
-        if (response.getResponseCode() >= 400) {
-            String s = response.asString();
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+
+        System.out.println(response.statusCode() + " length: " + response.statusCode());
+        if (response.statusCode() >= 400) {
+            String s = response.body();
             System.out.println(s);
-            throw new IllegalStateException("Fetch is unsuccessful: " + response.getResponseCode() + " " + s);
+            throw new IllegalStateException("Fetch is unsuccessful: " + response.statusCode() + " " + s);
         }
     }
 
@@ -331,16 +335,24 @@ public class WebdavStorage implements Storage<WebdavStorage.WebdavFile> {
         if (!parent.isEmpty())
             createFolder(parent);
 
-        Response response = createRequest(file.path)
-                .header("Destination", destination)
-                .method(WebdavMethod.MOVE)
-                .execute();
 
-        System.out.println(response.getResponseCode() + " length: " + response.getContentLength());
-        if (response.getResponseCode() >= 400) {
-            String s = response.asString();
+        HttpRequest request = createRequestWebdav(file.path)
+                .header("Destination", destination)
+                .method(WebdavMethod.MOVE.name(), HttpRequest.BodyPublishers.noBody())
+                .build();
+
+        HttpResponse<String> response;
+        try {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+
+        System.out.println(response.statusCode() + " length: " + response.headers().firstValueAsLong("Content-Length"));
+        if (response.statusCode() >= 400) {
+            String s = response.body();
             System.out.println(s);
-            throw new IllegalStateException("Fetch is unsuccessful: " + response.getResponseCode() + " " + s);
+            throw new IllegalStateException("Fetch is unsuccessful: " + response.statusCode() + " " + s);
         }
     }
 
